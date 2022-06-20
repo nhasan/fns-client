@@ -159,7 +159,9 @@ public class NotamDb {
 						+ "correlationId bigint, issuedTimestamp timestamp, storedTimeStamp timestamp, "
 						+ "updatedTimestamp timestamp, validFromTimestamp timestamp, validToTimestamp timestamp, "
 						+ "classification varchar(4), locationDesignator varchar(12), notamAccountability varchar(12), "
-						+ "notamText text, aixmNotamMessage clob, status varchar(12))";
+						+ "notamText text, aixmNotamMessage clob, status varchar(12), "
+						+ "validToEstimated varchar(1), notamId varchar(12), xoverNotamId varchar(12), "
+						+ "xoverNotamAccountability varchar(12))";
 				conn.prepareStatement(createQuery).execute();
 
 				// final String CreateDesignatorIndex = "CREATE INDEX index_locationDesignator ON NOTAMS (locationDesignator)";
@@ -170,7 +172,9 @@ public class NotamDb {
 						+ "correlationId bigint, issuedTimestamp timestamp, storedTimeStamp timestamp, "
 						+ "updatedTimestamp timestamp, validFromTimestamp timestamp, validToTimestamp timestamp, "
 						+ "classification varchar(4), locationDesignator varchar(12), notamAccountability varchar(12), "
-						+ "notamText text, aixmNotamMessage xml, status varchar(12))";
+						+ "notamText text, aixmNotamMessage xml, status varchar(12), "
+						+ "validToEstimated varchar(1), notamId varchar(12), xoverNotamId varchar(12), "
+						+ "xoverNotamAccountability varchar(12))";
 				conn.prepareStatement(createQuery).execute();
 
 				// final String createDesignatorIndex = "CREATE INDEX index_locationDesignator ON " + this.config.table
@@ -250,8 +254,8 @@ public class NotamDb {
 
 	public void putBulkNotam(final Connection conn, List<FnsMessage> fnsMessageList) throws SQLException {
 		PreparedStatement putNotamPreparedStatement = null;
-		conn.setAutoCommit(false);
 		try {
+			conn.setAutoCommit(false);
 			putNotamPreparedStatement = createPutNotamPreparedStatement(conn);
 			for (FnsMessage fnsMessage : fnsMessageList) {
 
@@ -260,7 +264,7 @@ public class NotamDb {
 							+ fnsMessage.getCorrelationId() + " and LastUpdateTime: "
 							+ fnsMessage.getUpdatedTimestamp().toString()
 							+ " discarded due to Notam in database has newer LastUpdateTime");
-					return;
+					continue;
 				}
 				populatePutNotamPreparedStatement(putNotamPreparedStatement, fnsMessage);
 				putNotamPreparedStatement.addBatch();
@@ -284,24 +288,21 @@ public class NotamDb {
 		String putNotamSql = "";
 		if (this.config.connectionUrl.startsWith("jdbc:h2")) {
 
-			putNotamSql = "INSERT INTO " + this.config.table + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-					+ "ON DUPLICATE KEY UPDATE " + "correlationId = ?, " + "updatedTimestamp = ?,"
-					+ "validFromTimestamp =?, " + "validToTimestamp =?, " + "classification =?, "
-					+ "locationDesignator =?, " + "notamAccountability =?, " + "notamText =?, " + "aixmNotamMessage =?,"
-					+ "status =?";
+			putNotamSql = "INSERT INTO " + this.config.table + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+					+ "ON DUPLICATE KEY UPDATE correlationId = ?, updatedTimestamp = ?,"
+					+ "validFromTimestamp =?, validToTimestamp =?, classification =?, "
+					+ "locationDesignator =?, notamAccountability =?, notamText =?, aixmNotamMessage =?,"
+					+ "status =?, validToEstimated =?, notamId =?, xoverNotamId =?, xoverNotamAccountability =?";
 
 		} else if (this.config.connectionUrl.startsWith("jdbc:postgresql")) {
-			putNotamSql = "INSERT INTO " + this.config.table + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+			putNotamSql = "INSERT INTO " + this.config.table + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
 					+ "ON CONFLICT (fnsid) DO UPDATE SET " + "correlationId = ?, " + "updatedTimestamp = ?, "
 					+ "validFromTimestamp =?, " + "validToTimestamp =?, " + "classification =?, "
 					+ "locationDesignator =?, " + "notamAccountability =?, " + "notamText =?, " + "aixmNotamMessage =?,"
-					+ "status =?";
+					+ "status =?, validToEstimated =?, notamId =?, xoverNotamId =?, xoverNotamAccountability =?";
 		}
 
-		PreparedStatement putMessagePreparedStatement = conn.prepareStatement(putNotamSql);
-
-		return putMessagePreparedStatement;
-
+		return conn.prepareStatement(putNotamSql);
 	}
 
 	private void populatePutNotamPreparedStatement(PreparedStatement putNotamPreparedStatement,
@@ -332,29 +333,39 @@ public class NotamDb {
 
 		putNotamPreparedStatement.setString(13, fnsMessage.getStatus().toString());
 
+		putNotamPreparedStatement.setString(14, fnsMessage.getValidToEstimated()? "Y" : "N");
+		putNotamPreparedStatement.setString(15, fnsMessage.getNotamId());
+		putNotamPreparedStatement.setString(16, fnsMessage.getXoverNotamId());
+		putNotamPreparedStatement.setString(17, fnsMessage.getXoverNotamAccountability());
+
 		// update if exists
-		putNotamPreparedStatement.setLong(14, fnsMessage.getCorrelationId());
-		putNotamPreparedStatement.setTimestamp(15, new Timestamp(System.currentTimeMillis()));
-		putNotamPreparedStatement.setTimestamp(16, fnsMessage.getValidFromTimestamp());
-		putNotamPreparedStatement.setTimestamp(17, fnsMessage.getValidToTimestamp());
-		putNotamPreparedStatement.setString(18, fnsMessage.getClassification());
-		putNotamPreparedStatement.setString(19, fnsMessage.getLocationDesignator());
-		putNotamPreparedStatement.setString(20, fnsMessage.getNotamAccountability());
-		putNotamPreparedStatement.setString(21, fnsMessage.getNotamText());
+		putNotamPreparedStatement.setLong(18, fnsMessage.getCorrelationId());
+		putNotamPreparedStatement.setTimestamp(19, new Timestamp(System.currentTimeMillis()));
+		putNotamPreparedStatement.setTimestamp(20, fnsMessage.getValidFromTimestamp());
+		putNotamPreparedStatement.setTimestamp(21, fnsMessage.getValidToTimestamp());
+		putNotamPreparedStatement.setString(22, fnsMessage.getClassification());
+		putNotamPreparedStatement.setString(23, fnsMessage.getLocationDesignator());
+		putNotamPreparedStatement.setString(24, fnsMessage.getNotamAccountability());
+		putNotamPreparedStatement.setString(25, fnsMessage.getNotamText());
 
 		if (this.config.connectionUrl.startsWith("jdbc:h2")) {
 			final Clob aixmNotamMessageClob = putNotamPreparedStatement.getConnection().createClob();
 			aixmNotamMessageClob.setString(1, fnsMessage.getAixmNotamMessage());
 
-			putNotamPreparedStatement.setClob(22, aixmNotamMessageClob);
+			putNotamPreparedStatement.setClob(26, aixmNotamMessageClob);
 		} else if (this.config.connectionUrl.startsWith("jdbc:postgresql")) {
 			SQLXML aixmNotamMessageSqlXml = putNotamPreparedStatement.getConnection().createSQLXML();
 			aixmNotamMessageSqlXml.setString(fnsMessage.getAixmNotamMessage());
 
-			putNotamPreparedStatement.setSQLXML(22, aixmNotamMessageSqlXml);
+			putNotamPreparedStatement.setSQLXML(26, aixmNotamMessageSqlXml);
 		}
 
-		putNotamPreparedStatement.setString(23, fnsMessage.getStatus().toString());
+		putNotamPreparedStatement.setString(27, fnsMessage.getStatus().toString());
+
+		putNotamPreparedStatement.setString(28, fnsMessage.getValidToEstimated()? "Y" : "N");
+		putNotamPreparedStatement.setString(29, fnsMessage.getNotamId());
+		putNotamPreparedStatement.setString(30, fnsMessage.getXoverNotamId());
+		putNotamPreparedStatement.setString(31, fnsMessage.getXoverNotamAccountability());
 	}
 
 	public boolean checkIfNotamIsNewer(final FnsMessage fnsMessage) throws SQLException {
