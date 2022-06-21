@@ -35,5 +35,11 @@ services:
             - type: bind
               source: ./log4j.properties
               target: /app/log4j.properties
+            - type: bind
+              source: ./logs
+              target: /app/logs
+            - type: bind
+              source: ./tmp
+              target: /app/tmp
         depends_on:
           - postgres
