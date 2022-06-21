@@ -1,0 +1,39 @@
+version: '3.7'
+services:
+    postgres:
+        image: postgres:latest
+        container_name: postgres
+        restart: always
+        environment:
+          - POSTGRES_USER=postgres
+          - POSTGRES_PASSWORD=postgres
+        logging:
+          options:
+            max-size: 10m
+            max-file: "3"
+        ports:
+          - '5432:5432'
+        volumes:
+          - ./postgres-data:/var/lib/postgresql/data
+          # copy the sql script to create tables
+          - ./init-user-db.sh:/docker-entrypoint-initdb.d/init-user-db.sh
+
+    fnsclient:
+        image: nhasan/fnsclient:1.0
+        container_name: fnsclient
+        hostname: fnsclient
+        restart: always
+        volumes:
+            - type: bind
+              source: ./fnsClient.conf
+              target: /app/fnsClient.conf
+              read_only: true
+            - type: bind
+              source: ./FIL_NHASAN_NADMM_COM.pem
+              target: /app/FIL_NHASAN_NADMM_COM.pem
+              read_only: true
+            - type: bind
+              source: ./log4j.properties
+              target: /app/log4j.properties
+        depends_on:
+          - postgres
