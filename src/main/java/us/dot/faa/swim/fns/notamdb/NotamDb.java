@@ -161,7 +161,7 @@ public class NotamDb {
 						+ "classification varchar(4), locationDesignator varchar(12), notamAccountability varchar(12), "
 						+ "notamText text, aixmNotamMessage clob, status varchar(12), "
 						+ "validToEstimated varchar(1), notamId varchar(12), xoverNotamId varchar(12), "
-						+ "xoverNotamAccountability varchar(12))";
+						+ "xoverNotamAccountability varchar(12), icaoLocation varchar(12))";
 				conn.prepareStatement(createQuery).execute();
 
 				// final String CreateDesignatorIndex = "CREATE INDEX index_locationDesignator ON NOTAMS (locationDesignator)";
@@ -174,7 +174,7 @@ public class NotamDb {
 						+ "classification varchar(4), locationDesignator varchar(12), notamAccountability varchar(12), "
 						+ "notamText text, aixmNotamMessage xml, status varchar(12), "
 						+ "validToEstimated varchar(1), notamId varchar(12), xoverNotamId varchar(12), "
-						+ "xoverNotamAccountability varchar(12))";
+						+ "xoverNotamAccountability varchar(12), icaoLocation varchar(12))";
 				conn.prepareStatement(createQuery).execute();
 
 				// final String createDesignatorIndex = "CREATE INDEX index_locationDesignator ON " + this.config.table
@@ -287,19 +287,18 @@ public class NotamDb {
 
 		String putNotamSql = "";
 		if (this.config.connectionUrl.startsWith("jdbc:h2")) {
-
-			putNotamSql = "INSERT INTO " + this.config.table + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-					+ "ON DUPLICATE KEY UPDATE correlationId = ?, updatedTimestamp = ?,"
-					+ "validFromTimestamp =?, validToTimestamp =?, classification =?, "
-					+ "locationDesignator =?, notamAccountability =?, notamText =?, aixmNotamMessage =?,"
-					+ "status =?, validToEstimated =?, notamId =?, xoverNotamId =?, xoverNotamAccountability =?";
+			putNotamSql = "INSERT INTO " + this.config.table + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+					+ "ON DUPLICATE KEY UPDATE correlationId = ?, updatedTimestamp = ?, validFromTimestamp =?, "
+					+ "validToTimestamp =?, classification =?, locationDesignator =?, notamAccountability =?, "
+					+ "notamText =?, aixmNotamMessage =?, status =?, validToEstimated =?, notamId =?, "
+					+ "xoverNotamId =?, xoverNotamAccountability =?, icaoLocation =?";
 
 		} else if (this.config.connectionUrl.startsWith("jdbc:postgresql")) {
-			putNotamSql = "INSERT INTO " + this.config.table + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-					+ "ON CONFLICT (fnsid) DO UPDATE SET " + "correlationId = ?, " + "updatedTimestamp = ?, "
-					+ "validFromTimestamp =?, " + "validToTimestamp =?, " + "classification =?, "
-					+ "locationDesignator =?, " + "notamAccountability =?, " + "notamText =?, " + "aixmNotamMessage =?,"
-					+ "status =?, validToEstimated =?, notamId =?, xoverNotamId =?, xoverNotamAccountability =?";
+			putNotamSql = "INSERT INTO " + this.config.table + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+					+ "ON CONFLICT (fnsid) DO UPDATE SET correlationId = ?, updatedTimestamp = ?, validFromTimestamp =?, "
+					+ "validToTimestamp =?, classification =?, locationDesignator =?, notamAccountability =?, "
+					+ "notamText =?, aixmNotamMessage =?, status =?, validToEstimated =?, notamId =?, "
+					+ "xoverNotamId =?, xoverNotamAccountability =?, icaoLocation =?";
 		}
 
 		return conn.prepareStatement(putNotamSql);
@@ -337,35 +336,37 @@ public class NotamDb {
 		putNotamPreparedStatement.setString(15, fnsMessage.getNotamId());
 		putNotamPreparedStatement.setString(16, fnsMessage.getXoverNotamId());
 		putNotamPreparedStatement.setString(17, fnsMessage.getXoverNotamAccountability());
+		putNotamPreparedStatement.setString(18, fnsMessage.getIcaoLocation());
 
 		// update if exists
-		putNotamPreparedStatement.setLong(18, fnsMessage.getCorrelationId());
-		putNotamPreparedStatement.setTimestamp(19, new Timestamp(System.currentTimeMillis()));
-		putNotamPreparedStatement.setTimestamp(20, fnsMessage.getValidFromTimestamp());
-		putNotamPreparedStatement.setTimestamp(21, fnsMessage.getValidToTimestamp());
-		putNotamPreparedStatement.setString(22, fnsMessage.getClassification());
-		putNotamPreparedStatement.setString(23, fnsMessage.getLocationDesignator());
-		putNotamPreparedStatement.setString(24, fnsMessage.getNotamAccountability());
-		putNotamPreparedStatement.setString(25, fnsMessage.getNotamText());
+		putNotamPreparedStatement.setLong(19, fnsMessage.getCorrelationId());
+		putNotamPreparedStatement.setTimestamp(20, new Timestamp(System.currentTimeMillis()));
+		putNotamPreparedStatement.setTimestamp(21, fnsMessage.getValidFromTimestamp());
+		putNotamPreparedStatement.setTimestamp(22, fnsMessage.getValidToTimestamp());
+		putNotamPreparedStatement.setString(23, fnsMessage.getClassification());
+		putNotamPreparedStatement.setString(24, fnsMessage.getLocationDesignator());
+		putNotamPreparedStatement.setString(25, fnsMessage.getNotamAccountability());
+		putNotamPreparedStatement.setString(26, fnsMessage.getNotamText());
 
 		if (this.config.connectionUrl.startsWith("jdbc:h2")) {
 			final Clob aixmNotamMessageClob = putNotamPreparedStatement.getConnection().createClob();
 			aixmNotamMessageClob.setString(1, fnsMessage.getAixmNotamMessage());
 
-			putNotamPreparedStatement.setClob(26, aixmNotamMessageClob);
+			putNotamPreparedStatement.setClob(27, aixmNotamMessageClob);
 		} else if (this.config.connectionUrl.startsWith("jdbc:postgresql")) {
 			SQLXML aixmNotamMessageSqlXml = putNotamPreparedStatement.getConnection().createSQLXML();
 			aixmNotamMessageSqlXml.setString(fnsMessage.getAixmNotamMessage());
 
-			putNotamPreparedStatement.setSQLXML(26, aixmNotamMessageSqlXml);
+			putNotamPreparedStatement.setSQLXML(27, aixmNotamMessageSqlXml);
 		}
 
-		putNotamPreparedStatement.setString(27, fnsMessage.getStatus().toString());
+		putNotamPreparedStatement.setString(28, fnsMessage.getStatus().toString());
 
-		putNotamPreparedStatement.setString(28, fnsMessage.getValidToEstimated()? "Y" : "N");
-		putNotamPreparedStatement.setString(29, fnsMessage.getNotamId());
-		putNotamPreparedStatement.setString(30, fnsMessage.getXoverNotamId());
-		putNotamPreparedStatement.setString(31, fnsMessage.getXoverNotamAccountability());
+		putNotamPreparedStatement.setString(29, fnsMessage.getValidToEstimated()? "Y" : "N");
+		putNotamPreparedStatement.setString(30, fnsMessage.getNotamId());
+		putNotamPreparedStatement.setString(31, fnsMessage.getXoverNotamId());
+		putNotamPreparedStatement.setString(32, fnsMessage.getXoverNotamAccountability());
+		putNotamPreparedStatement.setString(33, fnsMessage.getIcaoLocation());
 	}
 
 	public boolean checkIfNotamIsNewer(final FnsMessage fnsMessage) throws SQLException {

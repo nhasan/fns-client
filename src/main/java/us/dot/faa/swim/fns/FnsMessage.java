@@ -41,6 +41,7 @@ public class FnsMessage {
     private boolean validToEstimated;
     private String classification;
     private String locationDesignator;
+    private String icaoLocation;
     private String notamAccountability;
     private String notamId;
     private String xoverNotamId;
@@ -106,9 +107,12 @@ public class FnsMessage {
                                     timestampFormater.parse(validTime.getBeginPosition().getValue().get(0)).getTime());
                         }
 
-                        if (validTime.getEndPosition().getValue().size() != 0) {
+                        var endPosition = validTime.getEndPosition();
+                        if (endPosition.getValue().size() != 0) {
                             this.validToTimestamp = new Timestamp(
-                                    timestampFormater.parse(validTime.getEndPosition().getValue().get(0)).getTime());
+                                    timestampFormater.parse(endPosition.getValue().get(0)).getTime());
+                            if (endPosition.getIndeterminatePosition() != null)
+                                this.validToEstimated = endPosition.getIndeterminatePosition().value().equals("unknown");
                         }
 
                         this.classification = eventExtension.getClassification().getValue();
@@ -116,7 +120,9 @@ public class FnsMessage {
                         this.locationDesignator = notam.getLocation().getValue().getValue();
                         this.notamText = notam.getText().getValue().getValue();
 
-                        this.validToEstimated = notam.getEffectiveEnd().getValue().getValue().endsWith("EST");
+                        if (eventExtension.getIcaoLocation() != null && !eventExtension.getIcaoLocation().isNil())
+                            this.icaoLocation = eventExtension.getIcaoLocation().getValue().getValue();
+
                         var xovernotamElem = eventExtension.getXovernotamID();
                         if (xovernotamElem != null && !xovernotamElem.isNil()) {
                             this.xoverNotamId = xovernotamElem.getValue().getValue();
@@ -242,6 +248,10 @@ public class FnsMessage {
         return this.xoverNotamAccountability;
     }
 
+    public String getIcaoLocation() {
+        return this.icaoLocation;
+    }
+
     // setters
     public void setFNS_ID(final int fnsId) {
         this.fns_id = fnsId;
@@ -305,5 +315,9 @@ public class FnsMessage {
 
     public void setXoverNotamAccountability(final String xoverNotamAccountability) {
         this.xoverNotamAccountability = xoverNotamAccountability;
+    }
+
+    public void setIcaoLocation(final String icaoLocation) {
+        this.icaoLocation = icaoLocation;
     }
 }
