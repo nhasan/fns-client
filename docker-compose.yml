@@ -1,0 +1,32 @@
+version: '3.7'
+services:
+    postgres:
+        image: postgres:latest
+        container_name: postgres
+        restart: always
+        env_file:
+          - ./postgres/postgres.env
+        logging:
+          options:
+            max-size: 10m
+            max-file: "3"
+        ports:
+          - '5432:5432'
+        volumes:
+          - ./postgres/data:/var/lib/postgresql/data
+          # copy the sql script to create tables
+          - ./postgres/initdb.d:/docker-entrypoint-initdb.d
+
+    fnsclient:
+        image: pr0t0n/fns-client-flightintel:latest
+        container_name: fnsclient
+        hostname: fnsclient
+        restart: always
+        volumes:
+            - ./fnsclient/fnsClient.conf:/app/fnsClient.conf:ro
+            - ./fnsclient/FIL_PRIVATE_KEY.pem:/app/FIL_PRIVATE_KEY.pem:ro
+            - ./fnsclient/log4j.properties:/app/log4j.properties:ro
+            - ./fnsclient/logs:/app/logs
+            - ./fnsclient/tmp:/app/tmp
+        depends_on:
+          - postgres
