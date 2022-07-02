@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.sql.Clob;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -14,13 +13,10 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.AbstractMap;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import javax.xml.bind.JAXBException;
 
 import org.apache.commons.dbcp2.BasicDataSource;
+import org.apache.commons.dbutils.DbUtils;
 import org.json.XML;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,11 +25,11 @@ import us.dot.faa.swim.fns.FnsMessage;
 
 public class NotamDb {
 	private final static Logger logger = LoggerFactory.getLogger(NotamDb.class);
-	private NotamDbConfig config;
+	private final NotamDbConfig config;
 	private boolean isValid = false;
 	private boolean isInitializing = false;
 
-	private BasicDataSource notamDbDataSource = new BasicDataSource();
+	private final BasicDataSource notamDbDataSource = new BasicDataSource();
 
 	public NotamDb(NotamDbConfig config) throws Exception {
 		this.config = config;
@@ -77,81 +73,64 @@ public class NotamDb {
 	}
 
 	public boolean notamTableExists() throws SQLException {
-		final Connection conn = getDBConnection();
+		Connection conn = null;
+		ResultSet rset = null;
 		try {
+			conn = getDBConnection();
 			if (this.config.connectionUrl.startsWith("jdbc:h2")) {
-				final ResultSet rset = conn.getMetaData().getTables(null, this.config.schema, this.config.table, null);
+				rset = conn.getMetaData().getTables(null, this.config.schema, this.config.table, null);
 				if (rset.next()) {
 					return true;
 				}
 			} else if (this.config.connectionUrl.startsWith("jdbc:postgresql")) {
-				final ResultSet rset = conn.getMetaData().getTables(null, this.config.schema, this.config.table, null);
+				rset = conn.getMetaData().getTables(null, this.config.schema, this.config.table, null);
 				if (rset.next()) {
 					return true;
 				}
 			}
-		} catch (SQLException sqle) {
-			throw sqle;
 		} finally {
-			try {
-				conn.close();
-			} catch (SQLException sqle) {
-				logger.error(sqle.getMessage(), sqle);
-			}
+			DbUtils.closeQuietly(rset);
+			DbUtils.closeQuietly(conn);
 		}
 		return false;
 	}
 
 	public AbstractMap.SimpleEntry<Long, Instant> getLastCorrelationId() throws SQLException {
 		Connection conn = null;
+		PreparedStatement getLastCorrelationIdPreparedStatement = null;
 		try {
 			conn = getDBConnection();
-			PreparedStatement getLastCorrelationIdPreparedStatement = conn.prepareStatement(
+			getLastCorrelationIdPreparedStatement = conn.prepareStatement(
 					"SELECT storedTimeStamp, correlationid FROM NOTAMS ORDER BY correlationid DESC LIMIT 1");
 			ResultSet rs = getLastCorrelationIdPreparedStatement.executeQuery();
 			if (rs.next()) {
-				return new AbstractMap.SimpleEntry<Long, Instant>(rs.getLong("correlationid"),
+				return new AbstractMap.SimpleEntry<>(rs.getLong("correlationid"),
 						rs.getTimestamp("storedTimeStamp").toInstant());
 			} else {
 				return null;
 			}
-		} catch (SQLException sqle) {
-			throw sqle;
 		} finally {
-			try {
-				if (conn != null) {
-					conn.close();
-				}
-			} catch (SQLException sqle) {
-				logger.error(sqle.getMessage(), sqle);
-			}
+			DbUtils.closeQuietly(getLastCorrelationIdPreparedStatement);
+			DbUtils.closeQuietly(conn);
 		}
 	}
 
 	public void dropNotamTable() throws SQLException {
-		final Connection conn = getDBConnection();
-
-		try {			
+		Connection conn = null;
+		try {
+			conn = getDBConnection();
 			if (notamTableExists()) {
 				logger.info("Dropping NOTAMS Table");
 				final String dropQuery = "DROP TABLE " + this.config.table;
 				conn.prepareStatement(dropQuery).execute();
 			}
-		} catch (SQLException sqle) {
-			throw sqle;
 		} finally {
-			try {
-				conn.close();
-			} catch (SQLException sqle) {
-				logger.error(sqle.getMessage(), sqle);
-			}
+			DbUtils.closeQuietly(conn);
 		}
 	}
 
 	public void createNotamTable() throws SQLException {
-
-		final Connection conn = getDBConnection();
-
+		Connection conn = getDBConnection();
 		try {
 			logger.info("Creating new NOTAMS Table");
 			if (this.config.connectionUrl.startsWith("jdbc:h2")) {
@@ -181,16 +160,8 @@ public class NotamDb {
 				// 		+ " (locationDesignator)";
 				// conn.prepareStatement(createDesignatorIndex).execute();
 			}
-		} catch (
-
-		SQLException sqle) {
-			throw sqle;
 		} finally {
-			try {
-				conn.close();
-			} catch (SQLException sqle) {
-				logger.error(sqle.getMessage(), sqle);
-			}
+			DbUtils.closeQuietly(conn);
 		}
 	}
 
@@ -199,18 +170,11 @@ public class NotamDb {
 		try {
 			conn = getDBConnection();
 			putNotam(conn, fnsMessage);
-
 		} catch (SQLException e) {
 			isValid = false;
 			throw e;
 		} finally {
-			try {
-				if (conn != null) {
-					conn.close();
-				}
-			} catch (SQLException sqle) {
-				logger.error(sqle.getMessage(), sqle);
-			}
+			DbUtils.closeQuietly(conn);
 		}
 	}
 
@@ -228,58 +192,8 @@ public class NotamDb {
 			putNotamPreparedStatement = createPutNotamPreparedStatement(conn);
 			populatePutNotamPreparedStatement(putNotamPreparedStatement, fnsMessage);
 			putNotamPreparedStatement.executeUpdate();
-		} catch (SQLException e) {
-			throw e;
 		} finally {
-			if (putNotamPreparedStatement != null) {
-				putNotamPreparedStatement.close();
-			}
-		}
-	}
-
-	public void putBulkNotam(List<FnsMessage> fnsMessageList) throws SQLException {
-		Connection conn = null;
-		try {
-			conn = getDBConnection();
-			putBulkNotam(conn, fnsMessageList);
-		} catch (SQLException e) {
-			throw e;
-		} finally {
-			if (conn != null) {
-				conn.close();
-			}
-		}
-
-	}
-
-	public void putBulkNotam(final Connection conn, List<FnsMessage> fnsMessageList) throws SQLException {
-		PreparedStatement putNotamPreparedStatement = null;
-		try {
-			conn.setAutoCommit(false);
-			putNotamPreparedStatement = createPutNotamPreparedStatement(conn);
-			for (FnsMessage fnsMessage : fnsMessageList) {
-
-				if (!this.isInitializing && !checkIfNotamIsNewer(fnsMessage)) {
-					logger.debug("NOTAM with FNS_ID:" + fnsMessage.getFNS_ID() + " and CorrelationId: "
-							+ fnsMessage.getCorrelationId() + " and LastUpdateTime: "
-							+ fnsMessage.getUpdatedTimestamp().toString()
-							+ " discarded due to Notam in database has newer LastUpdateTime");
-					continue;
-				}
-				populatePutNotamPreparedStatement(putNotamPreparedStatement, fnsMessage);
-				putNotamPreparedStatement.addBatch();
-			}
-			putNotamPreparedStatement.executeUpdate();
-			conn.commit();
-
-		} catch (SQLException e) {
-			throw e;
-		} finally {
-			if (putNotamPreparedStatement != null) {
-				putNotamPreparedStatement.close();
-			}
-			conn.setAutoCommit(false);
-
+			DbUtils.closeQuietly((putNotamPreparedStatement));
 		}
 	}
 
@@ -371,16 +285,16 @@ public class NotamDb {
 
 	public boolean checkIfNotamIsNewer(final FnsMessage fnsMessage) throws SQLException {
 
-		final Connection conn = getDBConnection();
-
+		Connection conn = getDBConnection();
+		PreparedStatement checkIfNotamIsNewerPreparedStatement = null;
 		try {
-			PreparedStatement checkIfNotamIsNewerPreparedStatement = null;
 			logger.debug("Looking up up if NOTAM with FNS_ID:" + fnsMessage.getFNS_ID() + " and CorrelationId: "
 					+ fnsMessage.getCorrelationId() + " and LastUpdateTime: "
 					+ fnsMessage.getUpdatedTimestamp().toString());
 
 			checkIfNotamIsNewerPreparedStatement = conn
-					.prepareStatement("SELECT updatedtimestamp FROM NOTAMS WHERE fnsid=" + fnsMessage.getFNS_ID());
+					.prepareStatement("SELECT updatedtimestamp FROM NOTAMS WHERE fnsid=?");
+			checkIfNotamIsNewerPreparedStatement.setLong(1, fnsMessage.getFNS_ID());
 
 			ResultSet rset = checkIfNotamIsNewerPreparedStatement.executeQuery();
 
@@ -390,40 +304,28 @@ public class NotamDb {
 					.toEpochMilli()) {
 				return true;
 			}
-
-			checkIfNotamIsNewerPreparedStatement.close();
-		} catch (final SQLException sqle) {
-			throw sqle;
 		} finally {
-			try {
-				conn.close();
-			} catch (SQLException sqle) {
-				logger.error(sqle.getMessage(), sqle);
-			}
+			DbUtils.closeQuietly(checkIfNotamIsNewerPreparedStatement);
+			DbUtils.closeQuietly(conn);
 		}
 		return false;
 	}
 
 	public int removeOldNotams() throws SQLException {
-		final Connection conn = getDBConnection();
+		Connection conn = getDBConnection();
 		PreparedStatement putMessagePreparedStatement;
 		try {
 			putMessagePreparedStatement = conn.prepareStatement("DELETE FROM NOTAMS WHERE validtotimestamp < NOW()");
 			int recordsDeleted = putMessagePreparedStatement.executeUpdate();
+			putMessagePreparedStatement.close();
 
 			putMessagePreparedStatement = conn.prepareStatement("DELETE FROM NOTAMS WHERE status != 'ACTIVE'");
 			recordsDeleted = recordsDeleted + putMessagePreparedStatement.executeUpdate();
-
 			putMessagePreparedStatement.close();
+
 			return recordsDeleted;
-		} catch (final SQLException sqle) {
-			throw sqle;
 		} finally {
-			try {
-				conn.close();
-			} catch (SQLException sqle) {
-				logger.error(sqle.getMessage(), sqle);
-			}
+			DbUtils.closeQuietly(conn);
 		}
 	}
 
@@ -433,7 +335,7 @@ public class NotamDb {
 
 	// db lookups
 	public void getByLocationDesignator(String locationDesignator, OutputStream output, boolean asJson)
-			throws SQLException, JAXBException, IOException {
+			throws SQLException, IOException {
 
 		Connection conn = getDBConnection();
 		PreparedStatement selectPreparedStatement = null;
@@ -447,12 +349,13 @@ public class NotamDb {
 		} catch (SQLException e) {
 			logger.error("Createing Select Statement: " + e.getMessage());
 		} finally {
-			conn.close();
+			DbUtils.closeQuietly(selectPreparedStatement);
+			DbUtils.closeQuietly(conn);
 		}
 	}
 
 	public void getByClassification(String classification, OutputStream output, boolean asJson)
-			throws SQLException, JAXBException, IOException {
+			throws SQLException, IOException {
 
 		Connection conn = getDBConnection();
 		PreparedStatement selectPreparedStatement = null;
@@ -464,19 +367,15 @@ public class NotamDb {
 			writeResponseToSteam(selectPreparedStatement, output, asJson);
 		} catch (SQLException e) {
 			logger.error("Createing Select Statement: " + e.getMessage());
+		} finally {
+			DbUtils.closeQuietly(selectPreparedStatement);
+			DbUtils.closeQuietly(conn);
 		}
-
-		try {
-			conn.close();
-		} catch (SQLException e) {
-			logger.error("Closing DB Connection: " + e.getMessage());
-		}
-
 	}
 
 	public void getDelta(String deltaTime, OutputStream output, boolean asJson)
-			throws SQLException, JAXBException, IOException {
-		final Connection conn = getDBConnection();
+			throws SQLException, IOException {
+		Connection conn = getDBConnection();
 		PreparedStatement selectPreparedStatement = null;
 		try {
 			selectPreparedStatement = conn.prepareStatement("SELECT fnsid, aixmNotamMessage FROM " + this.config.table
@@ -487,14 +386,14 @@ public class NotamDb {
 		} catch (SQLException e) {
 			logger.error("[DB] Error Createing Select Statement: " + e.getMessage());
 		} finally {
-			conn.close();
+			DbUtils.closeQuietly(selectPreparedStatement);
+			DbUtils.closeQuietly(conn);
 		}
 	}
 
 	public void getByTimeRange(String fromDateTime, String toDateTime, OutputStream output, boolean asJson)
-			throws SQLException, JAXBException, IOException {
-
-		final Connection conn = getDBConnection();
+			throws SQLException, IOException {
+		Connection conn = getDBConnection();
 		PreparedStatement selectPreparedStatement = null;
 		try {
 			selectPreparedStatement = conn.prepareStatement("SELECT fnsid, aixmNotamMessage from " + this.config.table
@@ -509,11 +408,12 @@ public class NotamDb {
 		} catch (IllegalArgumentException e) {
 			throw new IllegalArgumentException(e);
 		} finally {
-			conn.close();
+			DbUtils.closeQuietly(selectPreparedStatement);
+			DbUtils.closeQuietly(conn);
 		}
 	}
 
-	public void getAllNotams(OutputStream output, boolean asJson) throws SQLException, JAXBException, IOException {
+	public void getAllNotams(OutputStream output, boolean asJson) throws SQLException, IOException {
 		final Connection conn = getDBConnection();
 		PreparedStatement selectPreparedStatement = null;
 		try {
@@ -521,11 +421,11 @@ public class NotamDb {
 					+ " WHERE status = 'ACTIVE' AND (validtotimestamp > NOW()  OR validtotimestamp is null)");
 
 			writeResponseToSteam(selectPreparedStatement, output, asJson);
-
 		} catch (SQLException e) {
 			logger.error("[DB] Error Createing Select Statement: " + e.getMessage());
 		} finally {
-			conn.close();
+			DbUtils.closeQuietly(selectPreparedStatement);
+			DbUtils.closeQuietly(conn);
 		}
 	}
 
@@ -549,7 +449,7 @@ public class NotamDb {
 				first = false;
 				bos.write(XML.toJSONObject(resultSet.getString("aixmNotamMessage")).toString().getBytes());
 			} else {
-				bos.write(resultSet.getString("aixmNotamMessage").replaceAll("\\<\\?xml(.+?)\\?\\>", "").trim().getBytes());
+				bos.write(resultSet.getString("aixmNotamMessage").replaceAll("<\\?xml(.+?)\\?>", "").trim().getBytes());
 			}
 		}
 
@@ -563,25 +463,24 @@ public class NotamDb {
 		bos.close();
 	}
 
-	public Map<String, Timestamp> getValidationMap() throws Exception {
+	public Map<String, Timestamp> getValidationMap() throws SQLException {
 
-		final Connection conn = getDBConnection();
+		Connection conn = getDBConnection();
 		PreparedStatement selectPreparedStatement = null;
 		try {
 			selectPreparedStatement = conn.prepareStatement("select fnsid, updatedtimestamp from " + this.config.table);
 
 			return createValidationMapFromDatabase(selectPreparedStatement);
 
-		} catch (SQLException e) {
-			throw e;
 		} finally {
-			conn.close();
+			DbUtils.closeQuietly(selectPreparedStatement);
+			DbUtils.closeQuietly(conn);
 		}
 	}
 
 	private Map<String, Timestamp> createValidationMapFromDatabase(PreparedStatement selectPreparedStatement)
 			throws SQLException {
-		Map<String, Timestamp> validationMap = new HashMap<String, Timestamp>();
+		Map<String, Timestamp> validationMap = new HashMap<>();
 
 		final ResultSet resultSet = selectPreparedStatement.executeQuery();
 
