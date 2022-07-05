@@ -6,18 +6,14 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.sql.SQLException;
-import java.sql.Timestamp;
-import java.text.ParseException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.AbstractMap;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Timer;
 import java.util.TimerTask;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -32,7 +28,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
 
-import com.jcraft.jsch.SftpException;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 
@@ -40,7 +35,6 @@ import us.dot.faa.swim.fns.FnsMessage.FnsMessageParseException;
 import us.dot.faa.swim.fns.FnsMessage.NotamStatus;
 import us.dot.faa.swim.fns.fil.FilClient;
 import us.dot.faa.swim.fns.fil.FilParser;
-import us.dot.faa.swim.fns.fil.FilParserWorker;
 import us.dot.faa.swim.fns.jms.FnsJmsMessageWorker;
 import us.dot.faa.swim.fns.notamdb.NotamDb;
 import us.dot.faa.swim.fns.rest.FnsRestApi;
@@ -48,7 +42,7 @@ import us.dot.faa.swim.jms.JmsClient;
 import us.dot.faa.swim.utilities.MissedMessageTracker;
 
 public class FnsClient implements ExceptionListener {
-	private static Logger logger = LoggerFactory.getLogger(FnsClient.class);
+	private static final Logger logger = LoggerFactory.getLogger(FnsClient.class);
 	private final static CountDownLatch latch = new CountDownLatch(1);
 
 	private final FnsClientConfig config;
@@ -62,7 +56,7 @@ public class FnsClient implements ExceptionListener {
 	private FnsRestApi fnsRestApi;
 	private boolean missedMessageDuringInitialization = false;
 
-	public Queue<FnsMessage> pendingJmsMessages = new ConcurrentLinkedQueue<FnsMessage>();
+	public Queue<FnsMessage> pendingJmsMessages = new ConcurrentLinkedQueue<>();
 
 	public FnsClient(FnsClientConfig config) throws Exception {
 		this.config = config;
@@ -101,8 +95,8 @@ public class FnsClient implements ExceptionListener {
 				config.getMissedMessageTriggerTime(), config.getStaleMessageTriggerTime()) {
 			@Override
 			public void onMissed(Map<Long, Instant> missedMessages) {
-				String cachedCorellationIds = missedMessages.entrySet().stream()
-						.map(kvp -> kvp.getKey() + ":" + missedMessages.get(kvp.getKey()))
+				String cachedCorellationIds = missedMessages.keySet().stream()
+						.map(id -> id + ":" + missedMessages.get(id))
 						.collect(Collectors.joining(", ", "{", "}"));
 
 				logger.warn("Missed Message(s) Identified | Missed Messages " + cachedCorellationIds);
@@ -252,86 +246,21 @@ public class FnsClient implements ExceptionListener {
 		AtomicInteger notamCount = new AtomicInteger();
 
 		final FilParser parser = new FilParser(config.getFilParserThreadCount(), config.getFilParserMaxWorkQueueSize());
-		parser.parseFilFile(inputStream, new FilParserWorker() {
+		parser.parseFilFile(inputStream, aixmMessage -> {
+			try {
+				final FnsMessage fnsMessage = new FnsMessage((long) -1, aixmMessage);
+				fnsMessage.setStatus(NotamStatus.ACTIVE);
+				notamDb.putNotam(fnsMessage);
+				notamCount.incrementAndGet();
 
-			@Override
-			public void processesMessage(String aixmMessage) {
-
-				try {
-					final FnsMessage fnsMessage = new FnsMessage((long) -1, aixmMessage);
-					fnsMessage.setStatus(NotamStatus.ACTIVE);
-					notamDb.putNotam(fnsMessage);
-					notamCount.incrementAndGet();
-
-				} catch (FnsMessageParseException | SQLException e) {
-					throw new RuntimeException(e);
-				}
+			} catch (FnsMessageParseException | SQLException e) {
+				throw new RuntimeException(e);
 			}
 		});
 
 		notamDb.setInitializing(false);
 
 		return notamCount.get();
-	}
-
-	public boolean validateNotamDb() throws Exception {
-
-		logger.info("Validating NotamDb");
-		Map<String, Timestamp> missingNotamsMap = new HashMap<String, Timestamp>();
-
-		try {
-			filClient.connectToFil();
-
-			logger.info("Generating Validation Map from FIL");
-			final Map<String, Timestamp> filValidationMap = new ConcurrentHashMap<String, Timestamp>();
-			new FilParser(config.filParserThreadCount, config.filParserWorkQueueSize).parseFilFile(
-					filClient.getFnsInitialLoad(new Date(System.currentTimeMillis())), new FilParserWorker() {
-
-						@Override
-						public void processesMessage(String aixmMessage) {
-							try {
-								final FnsMessage fnsMessage = new FnsMessage((long) -1, aixmMessage);
-								filValidationMap.put(String.valueOf(fnsMessage.getFNS_ID()),
-										fnsMessage.getUpdatedTimestamp());
-							} catch (FnsMessageParseException e) {
-								logger.error("Failed to create FnsMessage due to: " + e.getMessage(), e);
-								throw new RuntimeException(e);
-							}
-						}
-					});
-
-			logger.info("Getting Validation Map from NotamDb");
-			Map<String, Timestamp> notamDbValidationMap = notamDb.getValidationMap();
-			for (Map.Entry<String, Timestamp> entry : filValidationMap.entrySet()) {
-				Timestamp dbUpdateTime = notamDbValidationMap.get(entry.getKey());
-				if (dbUpdateTime == null) {
-					missingNotamsMap.put("Missing-" + entry.getKey(), entry.getValue());
-				} else {
-					if (!entry.getValue().equals(dbUpdateTime) && !entry.getValue().before(dbUpdateTime)) {
-						missingNotamsMap.put("Newer-" + entry.getKey(), entry.getValue());
-					}
-				}
-			}
-
-			if (!missingNotamsMap.isEmpty()) {
-
-				logger.warn("NotamDb Validation Failed");
-
-				String missMatches = missingNotamsMap.keySet().stream()
-						.map(key -> key + ":" + missingNotamsMap.get(key)).collect(Collectors.joining(", ", "{", "}"));
-
-				logger.debug("Missing NOTAMs: " + missMatches);
-				return false;
-			} else {
-				logger.info("NotamDb Validation Passed");
-				return true;
-			}
-		} catch (SQLException | ParserConfigurationException | IOException | SAXException | SftpException
-				| ParseException | InterruptedException e) {
-			throw e;
-		} finally {
-			filClient.close();
-		}
 	}
 
 	public void start() throws SQLException, InterruptedException {
@@ -396,16 +325,10 @@ public class FnsClient implements ExceptionListener {
 		}
 	}
 
-	public int removeOldNotams() throws SQLException {
+	public void removeOldNotams() throws SQLException {
 		logger.info("Removing old NOTAMS from database");
-		int notamsRemoved = 0;
-		try {
-			notamsRemoved = notamDb.removeOldNotams();
-			logger.info("Removed " + notamsRemoved + " Notams");
-			return notamsRemoved;
-		} catch (final SQLException e) {
-			throw e;
-		}
+		int notamsRemoved = notamDb.removeOldNotams();
+		logger.info("Removed " + notamsRemoved + " Notams");
 	}
 
 	@Override

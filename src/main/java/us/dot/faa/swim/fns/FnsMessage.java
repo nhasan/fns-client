@@ -1,7 +1,6 @@
 package us.dot.faa.swim.fns;
 
 import java.io.StringReader;
-import java.io.StringWriter;
 import java.sql.Timestamp;
 import java.text.DateFormat;
 import java.text.ParseException;
@@ -11,27 +10,20 @@ import java.util.Objects;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
 
-import javax.xml.bind.JAXBElement;
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.JAXBIntrospector;
 import javax.xml.bind.Unmarshaller;
 
 import aero.aixm.event.*;
-import org.h2.engine.User;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.w3c.dom.Node;
 
 import aero.aixm.extension.fnse.EventExtensionType;
 import aero.aixm.message.AIXMBasicMessageType;
 import aero.aixm.message.BasicMessageMemberAIXMPropertyType;
 import net.opengis.gml.TimePeriodType;
-import us.dot.faa.swim.fns.aixm.AIXMBasicMessageFeatureCollection;
 import us.dot.faa.swim.fns.aixm.AixmUtilities;
 
 public class FnsMessage {
-    private static final Logger logger = LoggerFactory.getLogger(FnsMessage.class);
-
     private int fns_id;
     private long correlationId;
     private Timestamp issuedTimestamp;
@@ -51,15 +43,13 @@ public class FnsMessage {
 
     public enum NotamStatus {
         ACTIVE, CANCELLED, EXPIRED
-    };
+    }
 
     private NotamStatus status;
 
     public FnsMessage(final Long correlationId, final String xmlMessage) throws FnsMessageParseException {
 
-        StringReader reader = new StringReader(xmlMessage.trim());
-
-        try {
+        try (StringReader reader = new StringReader(xmlMessage.trim())) {
             final Unmarshaller jaxb_FNSNOTAM_Unmarshaller = AixmUtilities.createAixmUnmarshaller();
 
             this.correlationId = correlationId;
@@ -133,7 +123,7 @@ public class FnsMessage {
                         }
 
                         var seriesElem = notam.getSeries();
-                        String series = (seriesElem != null)? seriesElem.getValue().getValue() : "";
+                        String series = (seriesElem != null) ? seriesElem.getValue().getValue() : "";
 
                         var numberElem = notam.getNumber();
                         if (numberElem != null) {
@@ -158,23 +148,9 @@ public class FnsMessage {
             }
         } catch (JAXBException | ParseException e) {
             throw new FnsMessageParseException("Failed to create FnsMessage message due to: " + e.getMessage(), e);
-        } finally {
-            reader.close();
         }
     }
 
-    private static String marshalToXml(AIXMBasicMessageFeatureCollection messageCollection) {
-        StringWriter sw = new StringWriter();
-        try {
-            AIXMBasicMessageFeatureCollection.getMarshaller().marshal(messageCollection, sw);
-            return sw.toString();
-        } catch (JAXBException e) {
-            logger.error("Error marshaling: " + e.getMessage());
-            return null;
-        }
-    }
-
-    @SuppressWarnings("serial")
     public static class FnsMessageParseException extends Exception
     {
         public FnsMessageParseException(String message, Exception e)

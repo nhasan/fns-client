@@ -2,6 +2,7 @@ package us.dot.faa.swim.fns.jms;
 
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.Enumeration;
 import java.util.Queue;
 
 import javax.jms.BytesMessage;
@@ -20,8 +21,8 @@ import us.dot.faa.swim.utilities.MissedMessageTracker;
 public class FnsJmsMessageWorker implements MessageListener {
 	private static final Logger logger = LoggerFactory.getLogger(FnsJmsMessageWorker.class);
 
-	private NotamDb notamDb;
-	private Queue<FnsMessage> pendingMessageQueue;
+	private final NotamDb notamDb;
+	private final Queue<FnsMessage> pendingMessageQueue;
 	private MissedMessageTracker missedMessageTracker = null;
 
 	public FnsJmsMessageWorker(NotamDb notamDb, Queue<FnsMessage> pendingMessageQueue) {
@@ -66,8 +67,6 @@ public class FnsJmsMessageWorker implements MessageListener {
 	}
 
 	private FnsMessage parseFnsJmsMessage(Message message) throws Exception {
-
-		FnsMessage fnsMessage;
 		long correlationId = -1;
 		if (message.propertyExists("us_gov_dot_faa_aim_fns_nds_CorrelationID")) {
 			correlationId = Long.parseLong(message.getStringProperty("us_gov_dot_faa_aim_fns_nds_CorrelationID"));
@@ -83,7 +82,7 @@ public class FnsJmsMessageWorker implements MessageListener {
 			messageBody = ((TextMessage) message).getText();
 		}
 
-		fnsMessage = new FnsMessage(correlationId, messageBody);
+		FnsMessage fnsMessage = new FnsMessage(correlationId, messageBody);
 		fnsMessage.setStatus(NotamStatus.valueOf(message.getStringProperty("us_gov_dot_faa_aim_fns_nds_NOTAMStatus")));
 
 		return fnsMessage;

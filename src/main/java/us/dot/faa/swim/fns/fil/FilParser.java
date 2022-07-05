@@ -33,12 +33,7 @@ public class FilParser {
     public void parseFilFile(InputStream filInputStream, FilParserWorker worker) throws Exception {        
 
         final XmlSplitterSaxParser parser = new XmlSplitterSaxParser(msg -> {
-            executor.execute(new Runnable() {
-                @Override
-                public void run() {
-                    worker.processesMessage(msg);
-                }
-            });
+            executor.execute(() -> worker.processesMessage(msg));
         }, 4);
 
         final SAXParserFactory saxParserFactory = SAXParserFactory.newInstance();

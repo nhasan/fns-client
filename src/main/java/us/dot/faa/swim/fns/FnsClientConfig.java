@@ -16,8 +16,8 @@ public class FnsClientConfig {
     protected JmsClientConfig jmsClientConfig = new JmsClientConfig();
     protected NotamDbConfig notamDbConfig = new NotamDbConfig();
 
-    protected String jmsConnectionFactoryName = "";
-    protected String jmsDestination = "";
+    protected String jmsConnectionFactoryName;
+    protected String jmsDestination;
     protected int jmsProcessingThreads = 2;
 
     protected int missedMessageTrackerScheduleRate = 10; // seconds
@@ -33,9 +33,6 @@ public class FnsClientConfig {
 
     protected boolean restApiIsEnabled = true;
     protected int restApiPort = 8080;
-
-    public FnsClientConfig() {
-    }
 
     public FnsClientConfig(Config typeSafeConfig) {
         // set fil config
@@ -66,12 +63,12 @@ public class FnsClientConfig {
             for (final Object jndiPropsObject : typeSafeConfig.getList("jms.jndiProperties")) {
                 if (jndiPropsObject instanceof ConfigObject) {
                     final ConfigObject jndiProps = (ConfigObject) jndiPropsObject;
-                    jndiProperties.put(jndiProps.get("0").render().toString().replace("\"", ""),
-                            jndiProps.get("1").render().toString().replace("\"", ""));
+                    jndiProperties.put(jndiProps.get("0").render().replace("\"", ""),
+                            jndiProps.get("1").render().replace("\"", ""));
                 } else {
                     final ConfigList jndiProps = (ConfigList) jndiPropsObject;
-                    jndiProperties.put(jndiProps.get(0).render().toString().replace("\"", ""),
-                            jndiProps.get(1).render().toString().replace("\"", ""));
+                    jndiProperties.put(jndiProps.get(0).render().replace("\"", ""),
+                            jndiProps.get(1).render().replace("\"", ""));
                 }
             }
 
@@ -92,8 +89,8 @@ public class FnsClientConfig {
             }
             this.notamDbConfig.setTable(typeSafeConfig.getString("notamDb.table"));
             if (typeSafeConfig.hasPath("notamDb.removeOldNotams")) {
-                this.setRemoveOldNotams(typeSafeConfig.getBoolean("notamDb.removeOldNotams"));
-                if (this.getRemoveOldNotams() == true && typeSafeConfig.hasPath("notamDb.removeOldNotams.frequency")) {
+                this.setRemoveOldNotams(typeSafeConfig.getBoolean("notamDb.removeOldNotams.enabled"));
+                if (this.getRemoveOldNotams() && typeSafeConfig.hasPath("notamDb.removeOldNotams.frequency")) {
                     this.setRemoveOldNotamsFrequency(typeSafeConfig.getInt("notamDb.removeOldNotams.frequency"));
                 }
             }
